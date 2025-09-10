@@ -191,11 +191,9 @@ jobs:
             console.log('Could not read or comment security report:', error);
             
             // Fallback comment
-            const fallbackSummary = `## 🔒 Security Compliance Analysis
-            
-Security analysis completed. Please check the workflow artifacts for the detailed compliance report.
-
-⚠️ **Action Required**: Review security findings and ensure regulatory compliance.`;
+            const fallbackSummary = "## 🔒 Security Compliance Analysis\\n\\n" +
+              "Security analysis completed. Please check the workflow artifacts for the detailed compliance report.\\n\\n" +
+              "⚠️ **Action Required**: Review security findings and ensure regulatory compliance.";
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
