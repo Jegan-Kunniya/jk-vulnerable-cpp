@@ -14,12 +14,15 @@ from datetime import datetime
 import argparse
 
 class CodeQLValidator:
-    def __init__(self, cve_datasheet_path, sarif_results_path=None):
+    def __init__(self, cve_datasheet_path, hipaa_mapping_path=None, sarif_results_path=None):
         self.cve_datasheet_path = cve_datasheet_path
+        self.hipaa_mapping_path = hipaa_mapping_path
         self.sarif_results_path = sarif_results_path
         self.cve_data = None
+        self.hipaa_data = None
         self.sarif_data = None
         self.load_cve_data()
+        self.load_hipaa_data()
         
     def load_cve_data(self):
         """Load CVE data from the Excel datasheet."""
@@ -29,6 +32,20 @@ class CodeQLValidator:
         except Exception as e:
             print(f"Error loading CVE datasheet: {e}")
             sys.exit(1)
+    
+    def load_hipaa_data(self):
+        """Load HIPAA CVE mapping data from the Excel datasheet."""
+        if not self.hipaa_mapping_path:
+            print("No HIPAA mapping file provided, skipping HIPAA data loading")
+            return
+            
+        try:
+            self.hipaa_data = pd.read_excel(self.hipaa_mapping_path, sheet_name="HIPAA CVE Mapping")
+            print(f"Loaded HIPAA mapping data: {len(self.hipaa_data)} records")
+        except Exception as e:
+            print(f"Error loading HIPAA mapping datasheet: {e}")
+            print("Continuing without HIPAA mapping data...")
+            self.hipaa_data = None
     
     def load_sarif_results(self, sarif_path):
         """Load SARIF results from CodeQL analysis."""
@@ -74,7 +91,7 @@ class CodeQLValidator:
         return cwe_id
     
     def match_findings_with_cve_data(self):
-        """Match SARIF findings with CVE datasheet entries."""
+        """Match SARIF findings with both CVE datasheet and HIPAA mapping data."""
         if not self.sarif_data:
             return []
         
@@ -121,16 +138,37 @@ class CodeQLValidator:
                         }
                         finding['locations'].append(loc_info)
                 
-                # Try to match with CVE data
+                # Try to match with both CVE and HIPAA data
                 matched_cve = None
+                matched_hipaa = None
+                
                 if cwe_id:
                     # Look for matching CWE in CVE data
-                    matched_rows = self.cve_data[self.cve_data['CWE'] == cwe_id]
-                    if not matched_rows.empty:
-                        matched_cve = matched_rows.iloc[0].to_dict()
+                    matched_cve_rows = self.cve_data[self.cve_data['CWE'] == cwe_id]
+                    if not matched_cve_rows.empty:
+                        matched_cve = matched_cve_rows.iloc[0].to_dict()
+                    
+                    # Look for matching CWE in HIPAA data
+                    if self.hipaa_data is not None:
+                        # HIPAA data might have multiple CWEs in a single cell
+                        hipaa_matches = []
+                        for _, hipaa_row in self.hipaa_data.iterrows():
+                            hipaa_cwe = str(hipaa_row.get('CWE', ''))
+                            # Check if our CWE ID is contained in the HIPAA CWE string
+                            if cwe_id and cwe_id in hipaa_cwe:
+                                hipaa_matches.append(hipaa_row.to_dict())
+                        
+                        if hipaa_matches:
+                            matched_hipaa = hipaa_matches[0]  # Take the first match
                 
+                # Add matches to finding
                 if matched_cve:
                     finding['cve_match'] = matched_cve
+                if matched_hipaa:
+                    finding['hipaa_match'] = matched_hipaa
+                
+                # Consider it matched if either CVE or HIPAA match found
+                if matched_cve or matched_hipaa:
                     matched_findings.append(finding)
                 else:
                     unmatched_findings.append(finding)
@@ -144,15 +182,24 @@ class CodeQLValidator:
         
         # Process matched findings
         for i, finding in enumerate(matched_findings, 1):
-            cve_data = finding['cve_match']
+            cve_data = finding.get('cve_match', {})
+            hipaa_data = finding.get('hipaa_match', {})
             
             # Create location string
             locations_str = "; ".join([f"{loc['file']}:{loc['line']}:{loc['column']}" 
                                      for loc in finding['locations']])
             
+            # Determine matching sources
+            match_sources = []
+            if cve_data:
+                match_sources.append("CVE Database")
+            if hipaa_data:
+                match_sources.append("HIPAA Mapping")
+            match_type = " + ".join(match_sources) if match_sources else "No Match"
+            
             row = {
                 'Finding_ID': f"MATCHED-{i:03d}",
-                'Finding_Type': 'CVE Database Match',
+                'Finding_Type': f'{match_type} Match',
                 'Rule_ID': finding['rule_id'],
                 'Rule_Name': finding['rule_name'],
                 'Short_Description': finding['short_description'],
@@ -180,7 +227,18 @@ class CodeQLValidator:
                 'Remediation_Owner': cve_data.get('Remediation Owner', ''),
                 'Status': cve_data.get('Status', 'Open'),
                 'Affected_Locations': locations_str,
-                'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                
+                # HIPAA-specific fields
+                'HIPAA_Section': hipaa_data.get('Section', 'N/A'),
+                'HIPAA_Safeguard_Type': hipaa_data.get('Safeguard Type', 'N/A'),
+                'HIPAA_Requirement': hipaa_data.get('Requirement', 'N/A'),
+                'HIPAA_Details': hipaa_data.get('Details', 'N/A'),
+                'HIPAA_Reference': hipaa_data.get('Reference', 'N/A'),
+                'HIPAA_Relevant_CVEs': hipaa_data.get('Relevant CVEs', 'N/A'),
+                'HIPAA_CVE_Score': hipaa_data.get('CVE Score', 'N/A'),
+                'Medical_Tech_Impact': hipaa_data.get('Medical Tech Impact', cve_data.get('Healthcare Capability (from Capabilities)', '')),
+                'Match_Source': match_type
             }
             report_data.append(row)
         
@@ -191,7 +249,7 @@ class CodeQLValidator:
             
             row = {
                 'Finding_ID': f"UNMATCHED-{i:03d}",
-                'Finding_Type': 'CodeQL Finding (No CVE Match)',
+                'Finding_Type': 'CodeQL Finding (No CVE/HIPAA Match)',
                 'Rule_ID': finding['rule_id'],
                 'Rule_Name': finding['rule_name'],
                 'Short_Description': finding['short_description'],
@@ -219,7 +277,18 @@ class CodeQLValidator:
                 'Remediation_Owner': '',
                 'Status': 'New',
                 'Affected_Locations': locations_str,
-                'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                
+                # HIPAA-specific fields for unmatched
+                'HIPAA_Section': 'N/A',
+                'HIPAA_Safeguard_Type': 'N/A',
+                'HIPAA_Requirement': 'N/A',
+                'HIPAA_Details': 'N/A',
+                'HIPAA_Reference': 'N/A',
+                'HIPAA_Relevant_CVEs': 'N/A',
+                'HIPAA_CVE_Score': 'N/A',
+                'Medical_Tech_Impact': '',
+                'Match_Source': 'No Match'
             }
             report_data.append(row)
         
@@ -229,13 +298,26 @@ class CodeQLValidator:
         """Generate summary statistics."""
         total_findings = len(matched_findings) + len(unmatched_findings)
         
+        # Count matches by source
+        cve_matches = sum(1 for f in matched_findings if 'cve_match' in f)
+        hipaa_matches = sum(1 for f in matched_findings if 'hipaa_match' in f)
+        dual_matches = sum(1 for f in matched_findings if 'cve_match' in f and 'hipaa_match' in f)
+        
         summary_data = [{
             'Metric': 'Total Security Findings',
             'Value': total_findings,
             'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }, {
             'Metric': 'Matched with CVE Database',
-            'Value': len(matched_findings),
+            'Value': cve_matches,
+            'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }, {
+            'Metric': 'Matched with HIPAA Mapping',
+            'Value': hipaa_matches,
+            'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }, {
+            'Metric': 'Dual Database Matches',
+            'Value': dual_matches,
             'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }, {
             'Metric': 'Unmatched Findings',
@@ -244,19 +326,28 @@ class CodeQLValidator:
         }]
         
         if matched_findings:
-            # Count regulatory impacts
+            # Count regulatory impacts from CVE database
             hipaa_count = sum(1 for f in matched_findings 
-                            if pd.notna(f['cve_match'].get('HIPAA Rules Impacted')) and 
+                            if 'cve_match' in f and 
+                            pd.notna(f['cve_match'].get('HIPAA Rules Impacted')) and 
                             str(f['cve_match'].get('HIPAA Rules Impacted')).strip())
             gdpr_count = sum(1 for f in matched_findings 
-                           if pd.notna(f['cve_match'].get('GDPR Articles Impacted')) and 
+                           if 'cve_match' in f and
+                           pd.notna(f['cve_match'].get('GDPR Articles Impacted')) and 
                            str(f['cve_match'].get('GDPR Articles Impacted')).strip())
             iso_count = sum(1 for f in matched_findings 
-                          if pd.notna(f['cve_match'].get('ISO 27001 Control')) and 
+                          if 'cve_match' in f and
+                          pd.notna(f['cve_match'].get('ISO 27001 Control')) and 
                           str(f['cve_match'].get('ISO 27001 Control')).strip())
             
+            # Count medical technology impacts from HIPAA database
+            medtech_impact_count = sum(1 for f in matched_findings 
+                                     if 'hipaa_match' in f and 
+                                     pd.notna(f['hipaa_match'].get('Medical Tech Impact')) and 
+                                     str(f['hipaa_match'].get('Medical Tech Impact')).strip())
+            
             summary_data.extend([{
-                'Metric': 'HIPAA Violations',
+                'Metric': 'HIPAA Violations (CVE DB)',
                 'Value': hipaa_count,
                 'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }, {
@@ -266,6 +357,10 @@ class CodeQLValidator:
             }, {
                 'Metric': 'ISO 27001 Violations',
                 'Value': iso_count,
+                'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }, {
+                'Metric': 'Medical Technology Impacts',
+                'Value': medtech_impact_count,
                 'Report_Generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }])
         
@@ -342,12 +437,45 @@ class CodeQLValidator:
                 'severity': 'HIGH'
             },
             {
-                'pattern': r'vec\[.*\].*without.*bound',
+                'pattern': r'data\[.*\].*without.*bound|return\s+data\[\w+\]',
                 'cwe': 'CWE-125',
                 'rule_id': 'cpp/buffer-overread',
                 'name': 'Buffer over-read',
                 'description': 'Array access without bounds checking',
                 'severity': 'MEDIUM'
+            },
+            # Add patterns that match HIPAA database CWEs
+            {
+                'pattern': r'password.*\=.*user',
+                'cwe': 'CWE-306',
+                'rule_id': 'cpp/authentication-bypass',
+                'name': 'Authentication bypass',
+                'description': 'Weak or missing authentication controls',
+                'severity': 'HIGH'
+            },
+            {
+                'pattern': r'cout.*line|cout.*userMessage|printf.*userMessage',
+                'cwe': 'CWE-200',
+                'rule_id': 'cpp/information-disclosure',
+                'name': 'Information disclosure',
+                'description': 'Sensitive information potentially exposed in output',
+                'severity': 'MEDIUM'
+            },
+            {
+                'pattern': r'strcpy.*password',
+                'cwe': 'CWE-311',
+                'rule_id': 'cpp/cleartext-storage',
+                'name': 'Cleartext storage of sensitive data',
+                'description': 'Passwords or sensitive data stored in cleartext',
+                'severity': 'HIGH'
+            },
+            {
+                'pattern': r'getpass.*no.*hash',
+                'cwe': 'CWE-287',
+                'rule_id': 'cpp/inadequate-authentication',
+                'name': 'Inadequate authentication',
+                'description': 'Authentication mechanism is inadequate',
+                'severity': 'HIGH'
             }
         ]
         
@@ -443,23 +571,43 @@ class CodeQLValidator:
         return [str(f) for f in sarif_files]
     
     def match_simulated_findings_with_cve_data(self, simulated_findings):
-        """Match simulated findings with CVE datasheet entries."""
+        """Match simulated findings with both CVE datasheet and HIPAA mapping data."""
         matched_findings = []
         unmatched_findings = []
         
         for finding in simulated_findings:
             cwe_id = finding['cwe_id']
             matched_cve = None
+            matched_hipaa = None
             
             if cwe_id:
                 # Look for matching CWE in CVE data
-                matched_rows = self.cve_data[self.cve_data['CWE'] == cwe_id]
-                if not matched_rows.empty:
+                matched_cve_rows = self.cve_data[self.cve_data['CWE'] == cwe_id]
+                if not matched_cve_rows.empty:
                     # Take the first match
-                    matched_cve = matched_rows.iloc[0].to_dict()
+                    matched_cve = matched_cve_rows.iloc[0].to_dict()
+                
+                # Look for matching CWE in HIPAA data
+                if self.hipaa_data is not None:
+                    # HIPAA data might have multiple CWEs in a single cell
+                    hipaa_matches = []
+                    for _, hipaa_row in self.hipaa_data.iterrows():
+                        hipaa_cwe = str(hipaa_row.get('CWE', ''))
+                        # Check if our CWE ID is contained in the HIPAA CWE string
+                        if cwe_id and cwe_id in hipaa_cwe:
+                            hipaa_matches.append(hipaa_row.to_dict())
+                    
+                    if hipaa_matches:
+                        matched_hipaa = hipaa_matches[0]  # Take the first match
             
+            # Add matches to finding
             if matched_cve:
                 finding['cve_match'] = matched_cve
+            if matched_hipaa:
+                finding['hipaa_match'] = matched_hipaa
+            
+            # Consider it matched if either CVE or HIPAA match found
+            if matched_cve or matched_hipaa:
                 matched_findings.append(finding)
             else:
                 unmatched_findings.append(finding)
@@ -525,6 +673,31 @@ class CodeQLValidator:
                 cve_sample = self.cve_data.head(10)
                 cve_sample.to_excel(writer, sheet_name='CVE_Database_Reference', index=False)
                 
+                # HIPAA mapping reference sheet (if available)
+                if self.hipaa_data is not None:
+                    self.hipaa_data.to_excel(writer, sheet_name='HIPAA_Mapping_Reference', index=False)
+                
+                # Medical Technology Impact Analysis (if HIPAA data is available)
+                if self.hipaa_data is not None and matched_findings:
+                    medtech_analysis = []
+                    for finding in matched_findings:
+                        if 'hipaa_match' in finding:
+                            hipaa_data = finding['hipaa_match']
+                            medtech_analysis.append({
+                                'Finding_ID': f"MATCHED-{matched_findings.index(finding)+1:03d}",
+                                'CWE_ID': finding['cwe_id'],
+                                'HIPAA_Section': hipaa_data.get('Section', ''),
+                                'HIPAA_Requirement': hipaa_data.get('Requirement', ''),
+                                'Medical_Tech_Impact': hipaa_data.get('Medical Tech Impact', ''),
+                                'Relevant_CVEs': hipaa_data.get('Relevant CVEs', ''),
+                                'CVE_Score': hipaa_data.get('CVE Score', ''),
+                                'Safeguard_Type': hipaa_data.get('Safeguard Type', '')
+                            })
+                    
+                    if medtech_analysis:
+                        medtech_df = pd.DataFrame(medtech_analysis)
+                        medtech_df.to_excel(writer, sheet_name='Medical_Tech_Impact_Analysis', index=False)
+                
             print(f"Excel security compliance report generated: {output_file}")
             print(f"CSV files also generated for GitHub Actions:")
             print(f"  Findings: {csv_findings_file}")
@@ -537,24 +710,49 @@ class CodeQLValidator:
         # Print summary to console
         print(f"\nSECURITY COMPLIANCE ANALYSIS SUMMARY:")
         print(f"  Total findings: {len(matched_findings) + len(unmatched_findings)}")
-        print(f"  Matched with CVE database: {len(matched_findings)}")
+        
+        cve_matches = sum(1 for f in matched_findings if 'cve_match' in f)
+        hipaa_matches = sum(1 for f in matched_findings if 'hipaa_match' in f)
+        dual_matches = sum(1 for f in matched_findings if 'cve_match' in f and 'hipaa_match' in f)
+        
+        print(f"  Matched with CVE database: {cve_matches}")
+        print(f"  Matched with HIPAA mapping: {hipaa_matches}")
+        print(f"  Dual database matches: {dual_matches}")
         print(f"  Unmatched findings: {len(unmatched_findings)}")
         
         if matched_findings:
             print(f"\nREGULATORY IMPACT SUMMARY:")
             hipaa_count = sum(1 for f in matched_findings 
-                            if pd.notna(f['cve_match'].get('HIPAA Rules Impacted')) and 
+                            if 'cve_match' in f and
+                            pd.notna(f['cve_match'].get('HIPAA Rules Impacted')) and 
                             str(f['cve_match'].get('HIPAA Rules Impacted')).strip())
             gdpr_count = sum(1 for f in matched_findings 
-                           if pd.notna(f['cve_match'].get('GDPR Articles Impacted')) and 
+                           if 'cve_match' in f and
+                           pd.notna(f['cve_match'].get('GDPR Articles Impacted')) and 
                            str(f['cve_match'].get('GDPR Articles Impacted')).strip())
             iso_count = sum(1 for f in matched_findings 
-                          if pd.notna(f['cve_match'].get('ISO 27001 Control')) and 
+                          if 'cve_match' in f and
+                          pd.notna(f['cve_match'].get('ISO 27001 Control')) and 
                           str(f['cve_match'].get('ISO 27001 Control')).strip())
+            
+            medtech_impact_count = sum(1 for f in matched_findings 
+                                     if 'hipaa_match' in f and 
+                                     pd.notna(f['hipaa_match'].get('Medical Tech Impact')) and 
+                                     str(f['hipaa_match'].get('Medical Tech Impact')).strip())
             
             print(f"  HIPAA violations: {hipaa_count}")
             print(f"  GDPR violations: {gdpr_count}")
             print(f"  ISO 27001 violations: {iso_count}")
+            print(f"  Medical Technology impacts: {medtech_impact_count}")
+            
+            if self.hipaa_data is not None:
+                print(f"\nMEDICAL TECHNOLOGY IMPACT ANALYSIS:")
+                print(f"  HIPAA mapping database loaded: {len(self.hipaa_data)} records")
+                print(f"  Medical technology impacts identified: {medtech_impact_count}")
+                for f in matched_findings:
+                    if 'hipaa_match' in f and pd.notna(f['hipaa_match'].get('Medical Tech Impact')):
+                        impact = f['hipaa_match'].get('Medical Tech Impact', '')[:100]
+                        print(f"    • {f['cwe_id']}: {impact}...")
         
         return True
     
@@ -654,10 +852,13 @@ class CodeQLValidator:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Validate CodeQL results against CVE database')
+    parser = argparse.ArgumentParser(description='Validate CodeQL results against CVE database and HIPAA mapping')
     parser.add_argument('--cve-datasheet', 
                        default='CVE_Datasheet_Populated_v3.xlsx',
                        help='Path to CVE datasheet Excel file')
+    parser.add_argument('--hipaa-mapping',
+                       default='HIPAA_CVE_Mapping_with_CWE.xlsx',
+                       help='Path to HIPAA CVE mapping Excel file')
     parser.add_argument('--sarif-results',
                        help='Path to SARIF results file from CodeQL')
     parser.add_argument('--output',
@@ -670,7 +871,16 @@ def main():
         print(f"Error: CVE datasheet not found: {args.cve_datasheet}")
         sys.exit(1)
     
-    validator = CodeQLValidator(args.cve_datasheet, args.sarif_results)
+    # HIPAA mapping is optional
+    hipaa_mapping = None
+    if args.hipaa_mapping and os.path.exists(args.hipaa_mapping):
+        hipaa_mapping = args.hipaa_mapping
+        print(f"Using HIPAA mapping file: {hipaa_mapping}")
+    else:
+        print(f"HIPAA mapping file not found: {args.hipaa_mapping}")
+        print("Continuing with CVE database validation only...")
+    
+    validator = CodeQLValidator(args.cve_datasheet, hipaa_mapping, args.sarif_results)
     
     try:
         success = validator.validate_and_report(args.output)
