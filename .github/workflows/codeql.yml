@@ -112,10 +112,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r scripts/requirements.txt
     
-    - name: Validate Security Findings Against CVE Database
+    - name: Validate Security Findings Against CVE Database and HIPAA Mapping
       run: |
         python scripts/validate_codeql_results.py \
           --cve-datasheet CVE_Datasheet_Populated_v3.xlsx \
+          --hipaa-mapping HIPAA_CVE_Mapping_with_CWE.xlsx \
           --output security_compliance_report.xlsx
       continue-on-error: true
     
