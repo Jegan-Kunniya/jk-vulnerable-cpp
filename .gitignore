@@ -15,3 +15,17 @@ vulnerable_cpp_app
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test files
+test_*.xlsx
+test_*.csv
+
+# Security reports (except for workflow artifacts)
+security_compliance_report*.xlsx
+security_compliance_report*.csv
