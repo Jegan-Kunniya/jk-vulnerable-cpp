@@ -501,15 +501,24 @@ class CodeQLValidator:
         # Determine output format based on file extension
         base_name = output_file.rsplit('.', 1)[0]
         
+        # Always create CSV files for GitHub Actions to read
+        csv_findings_file = f"{base_name}_findings.csv"
+        csv_summary_file = f"{base_name}_summary.csv" 
+        
+        findings_df = pd.DataFrame(report_data)
+        summary_df = pd.DataFrame(summary_data)
+        
+        # Always generate CSV files
+        findings_df.to_csv(csv_findings_file, index=False)
+        summary_df.to_csv(csv_summary_file, index=False)
+        
         if output_file.endswith('.xlsx'):
             # Create Excel file with multiple sheets
             with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
                 # Main findings sheet
-                findings_df = pd.DataFrame(report_data)
                 findings_df.to_excel(writer, sheet_name='Security_Findings', index=False)
                 
                 # Summary sheet
-                summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Executive_Summary', index=False)
                 
                 # CVE Database reference sheet (first 10 records for reference)
@@ -517,17 +526,10 @@ class CodeQLValidator:
                 cve_sample.to_excel(writer, sheet_name='CVE_Database_Reference', index=False)
                 
             print(f"Excel security compliance report generated: {output_file}")
+            print(f"CSV files also generated for GitHub Actions:")
+            print(f"  Findings: {csv_findings_file}")
+            print(f"  Summary: {csv_summary_file}")
         else:
-            # Create CSV files
-            csv_findings_file = f"{base_name}_findings.csv"
-            csv_summary_file = f"{base_name}_summary.csv"
-            
-            findings_df = pd.DataFrame(report_data)
-            findings_df.to_csv(csv_findings_file, index=False)
-            
-            summary_df = pd.DataFrame(summary_data)
-            summary_df.to_csv(csv_summary_file, index=False)
-            
             print(f"CSV security compliance reports generated:")
             print(f"  Findings: {csv_findings_file}")
             print(f"  Summary: {csv_summary_file}")
