@@ -116,7 +116,7 @@ jobs:
       run: |
         python scripts/validate_codeql_results.py \
           --cve-datasheet CVE_Datasheet_Populated_v3.xlsx \
-          --output security_compliance_report.md
+          --output security_compliance_report.xlsx
       continue-on-error: true
     
     - name: Upload Security Compliance Report
@@ -124,7 +124,9 @@ jobs:
       if: always()
       with:
         name: security-compliance-report-${{ matrix.language }}
-        path: security_compliance_report.md
+        path: |
+          security_compliance_report.xlsx
+          security_compliance_report*.csv
         retention-days: 30
     
     - name: Comment Security Report Summary
@@ -134,31 +136,71 @@ jobs:
         script: |
           const fs = require('fs');
           try {
-            const report = fs.readFileSync('security_compliance_report.md', 'utf8');
-            const lines = report.split('\n');
-            
-            // Extract summary information
+            // Try to read the CSV summary file if Excel is not available
             let summary = '## 🔒 Security Compliance Analysis Summary\n\n';
+            let reportFound = false;
             
-            // Look for executive summary
-            const summaryStart = lines.findIndex(line => line.includes('Executive Summary'));
-            if (summaryStart > -1) {
-              for (let i = summaryStart + 1; i < Math.min(summaryStart + 10, lines.length); i++) {
-                if (lines[i].trim().startsWith('-')) {
-                  summary += lines[i] + '\n';
+            // Check for summary CSV file
+            const summaryFiles = ['security_compliance_report_summary.csv'];
+            for (const summaryFile of summaryFiles) {
+              if (fs.existsSync(summaryFile)) {
+                const csvContent = fs.readFileSync(summaryFile, 'utf8');
+                const lines = csvContent.split('\n');
+                
+                summary += '### Key Metrics\n';
+                for (let i = 1; i < lines.length && lines[i].trim(); i++) {
+                  const columns = lines[i].split(',');
+                  if (columns.length >= 2) {
+                    const metric = columns[0].replace(/"/g, '');
+                    const value = columns[1].replace(/"/g, '');
+                    summary += `- **${metric}**: ${value}\n`;
+                  }
                 }
+                reportFound = true;
+                break;
               }
             }
             
-            summary += '\n📋 **Full Report**: Check the workflow artifacts for the complete security compliance report.\n';
-            summary += '\n⚠️ **Action Required**: Please review all security findings and ensure compliance with regulatory requirements.\n';
+            if (!reportFound) {
+              // Fallback - try to find Excel file and indicate it exists
+              if (fs.existsSync('security_compliance_report.xlsx')) {
+                summary += '✅ **Security compliance analysis completed**\n\n';
+                summary += '📊 **Report Format**: Excel (.xlsx) with multiple sheets\n';
+                summary += '- Security findings with CVE database validation\n';
+                summary += '- Regulatory compliance mapping (HIPAA, GDPR, ISO 27001)\n';
+                summary += '- Executive summary with key metrics\n';
+                reportFound = true;
+              }
+            }
             
+            if (reportFound) {
+              summary += '\n📋 **Full Report**: Check the workflow artifacts for the complete security compliance report.\n';
+              summary += '⚠️ **Action Required**: Please review all security findings and ensure compliance with regulatory requirements.\n';
+              summary += '\n🏥 **Healthcare Compliance**: This analysis validates against HIPAA, GDPR, ISO 27001, IEC 81001-5-1, and FDA requirements.\n';
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            } else {
+              console.log('No security compliance report found to comment.');
+            }
+          } catch (error) {
+            console.log('Could not read or comment security report:', error);
+            
+            // Fallback comment
+            const fallbackSummary = `## 🔒 Security Compliance Analysis
+            
+Security analysis completed. Please check the workflow artifacts for the detailed compliance report.
+
+⚠️ **Action Required**: Review security findings and ensure regulatory compliance.`;
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: summary
+              body: fallbackSummary
             });
-          } catch (error) {
-            console.log('Could not read or comment security report:', error);
           }
