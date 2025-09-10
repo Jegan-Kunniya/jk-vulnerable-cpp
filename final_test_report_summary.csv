@@ -1,0 +1,10 @@
+Metric,Value,Report_Generated
+Total Security Findings,14,2025-09-10 21:18:21
+Matched with CVE Database,7,2025-09-10 21:18:21
+Matched with HIPAA Mapping,3,2025-09-10 21:18:21
+Dual Database Matches,2,2025-09-10 21:18:21
+Unmatched Findings,6,2025-09-10 21:18:21
+HIPAA Violations (CVE DB),5,2025-09-10 21:18:21
+GDPR Violations,7,2025-09-10 21:18:21
+ISO 27001 Violations,7,2025-09-10 21:18:21
+Medical Technology Impacts,3,2025-09-10 21:18:21
