@@ -1,0 +1,17 @@
+# Build artifacts
+vulnerable_cpp_app
+*.o
+*.obj
+*.exe
+
+# Temporary files
+*.tmp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db
