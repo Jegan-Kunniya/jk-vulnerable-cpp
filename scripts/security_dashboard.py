@@ -1,9 +1,10 @@
-#!/usr/bin/env python3
 """
 Security Compliance Dashboard
 
 This interactive dashboard displays security findings from the security_compliance_report.xlsx
 with correlation analysis and professional visualization.
+
+Cross-platform compatible for Windows, macOS, and Linux.
 """
 
 import streamlit as st

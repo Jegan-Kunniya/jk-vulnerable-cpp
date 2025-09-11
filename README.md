@@ -73,12 +73,19 @@ The repository includes a professional, interactive dashboard that displays secu
 
 #### Quick Start Dashboard
 
+**Linux/macOS:**
 ```bash
 # Launch the interactive dashboard
 ./launch_dashboard.sh
 ```
 
-Or manually:
+**Windows:**
+```cmd
+REM Launch the interactive dashboard
+launch_dashboard.bat
+```
+
+Or manually (cross-platform):
 
 ```bash
 # Install dependencies
