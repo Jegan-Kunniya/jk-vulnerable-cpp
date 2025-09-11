@@ -22,6 +22,9 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Streamlit cache
+.streamlit/
+
 # Test files
 test_*.xlsx
 test_*.csv

@@ -55,6 +55,63 @@ This repository includes an enhanced CodeQL workflow that automatically validate
   - FDA Premarket Requirements
 - **Detailed Reporting**: Comprehensive security compliance reports with remediation guidance
 - **CI/CD Integration**: Automated validation on every push and pull request
+- **Interactive Dashboard**: Professional web-based dashboard for visualizing security findings
+
+### Security Compliance Dashboard
+
+The repository includes a professional, interactive dashboard that displays security findings from `security_compliance_report.xlsx` with correlation analysis and filtering capabilities.
+
+#### Dashboard Features
+
+- **Professional Visualization**: Clean, intuitive interface with modern styling
+- **Interactive Filtering**: Filter findings by severity, component, and match source
+- **Correlation Analysis**: Visual correlation matrix showing relationships between security metrics
+- **Compliance Impact Analysis**: Regulatory compliance impact across HIPAA, GDPR, and FDA
+- **Detailed Findings View**: Expandable cards showing comprehensive vulnerability details
+- **Real-time Metrics**: Key performance indicators with dynamic updates based on filters
+- **Export Capabilities**: Download data as CSV and charts as PNG
+
+#### Quick Start Dashboard
+
+**Linux/macOS:**
+```bash
+# Launch the interactive dashboard
+./launch_dashboard.sh
+```
+
+**Windows:**
+```cmd
+REM Launch the interactive dashboard
+launch_dashboard.bat
+```
+
+Or manually (cross-platform):
+
+```bash
+# Install dependencies
+pip install -r scripts/requirements.txt
+
+# Launch the dashboard
+streamlit run scripts/security_dashboard.py
+```
+
+The dashboard will be available at: http://localhost:8501
+
+#### Dashboard Fields
+
+The dashboard displays the following fields from the Security_Findings sheet:
+- Rule_Name: Security rule that was violated
+- Full_Description: Detailed description of the vulnerability
+- Severity: Risk level (CRITICAL, HIGH, MEDIUM, LOW)
+- CWE_ID: Common Weakness Enumeration identifier
+- CVE_ID: Common Vulnerabilities and Exposures identifier
+- CVSS_Base_Score: Common Vulnerability Scoring System score
+- Component_Package: Affected software component
+- HIPAA_Rules_Impacted: HIPAA regulation sections affected
+- GDPR_Articles_Impacted: GDPR articles affected
+- FDA_Premarket_Topic: FDA premarket requirements impacted
+- Medical_Tech_Impact: Medical technology impact assessment
+- Match_Source: Source of the security finding match
 
 ### Security Report Generation
 
